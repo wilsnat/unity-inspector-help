@@ -35,11 +35,13 @@ public class HelpAttribute : PropertyAttribute
 {
     public readonly string text;
 
+    //Hide the following variable (useful for sticking at the end of an ispector
+    public bool hideVariable ;
+
     // MessageType exists in UnityEditor namespace and can throw an exception when used outside the editor.
     // We spoof MessageType at the bottom of this script to ensure that errors are not thrown when
     // MessageType is unavailable.
     public readonly MessageType type;
-
 
     /// <summary>
     /// Adds a HelpBox to the Unity property inspector above this field.
@@ -50,6 +52,21 @@ public class HelpAttribute : PropertyAttribute
     {
         this.text = text;
         this.type = type;
+        this.hideVariable = false;
+    }
+
+
+    /// <summary>
+    /// Adds a HelpBox to the Unity property inspector above this field.
+    /// </summary>
+    /// <param name="text">The help text to be displayed in the HelpBox.</param>
+    /// <param name="hideVariable">Completely hide the following variable, useful for end of inspector text</param>
+    /// <param name="type">The icon to be displayed in the HelpBox.</param>
+    public HelpAttribute(string text, bool hideVariable, MessageType type = MessageType.Info)
+    {
+        this.text = text;
+        this.type = type;
+        this.hideVariable = hideVariable;
     }
 }
 
@@ -103,9 +120,14 @@ public class HelpDrawer : PropertyDrawer
     {
         // We store the original property height for later use...
         baseHeight = base.GetPropertyHeight(prop, label);
+        //If you are hiding the variable, return only the height of the box
+        if (helpAttribute.hideVariable) baseHeight = 0;
 
         // This stops icon shrinking if text content doesn't fill out the container enough.
         float minHeight = paddingHeight * 5;
+        //if there is no icon, no extra padding needed
+        if (helpAttribute.type.Equals(MessageType.None)) minHeight = 0;
+
 
         // Calculate the height of the HelpBox using the GUIStyle on the current skin and the inspector
         // window's currentViewWidth.
@@ -155,62 +177,64 @@ public class HelpDrawer : PropertyDrawer
         // Renders the HelpBox in the Unity inspector UI.
         EditorGUI.HelpBox(helpPos, helpAttribute.text, helpAttribute.type);
 
-        position.y += helpPos.height + marginHeight;
-        position.height = baseHeight;
-
-
-        // If we have a RangeAttribute on our field, we need to handle the PropertyDrawer differently to
-        // keep the same style as Unity's default.
-        var range = rangeAttribute;
-
-        if (range != null)
+        //Only enter this loop if you aren't hiding the variable
+        if (!helpAttribute.hideVariable)
         {
-            if (prop.propertyType == SerializedPropertyType.Float)
+            position.y += helpPos.height + marginHeight;
+            position.height = baseHeight;
+            // If we have a RangeAttribute on our field, we need to handle the PropertyDrawer differently to
+            // keep the same style as Unity's default.
+            var range = rangeAttribute;
+
+            if (range != null)
             {
-                EditorGUI.Slider(position, prop, range.min, range.max, label);
+                if (prop.propertyType == SerializedPropertyType.Float)
+                {
+                    EditorGUI.Slider(position, prop, range.min, range.max, label);
+                }
+                else if (prop.propertyType == SerializedPropertyType.Integer)
+                {
+                    EditorGUI.IntSlider(position, prop, (int)range.min, (int)range.max, label);
+                }
+                else
+                {
+                    // Not numeric so draw standard property field as punishment for adding RangeAttribute to
+                    // a property which can not have a range :P
+                    EditorGUI.PropertyField(position, prop, label);
+                }
             }
-            else if (prop.propertyType == SerializedPropertyType.Integer)
+            else if (multiline != null)
             {
-                EditorGUI.IntSlider(position, prop, (int)range.min, (int)range.max, label);
+                // Here's where we handle the PropertyDrawer differently if we have a MultiLineAttribute, to try
+                // and keep some kind of multiline text area. This is not identical to Unity's default but is
+                // better than nothing...
+                if (prop.propertyType == SerializedPropertyType.String)
+                {
+                    var style = GUI.skin.label;
+                    var size = style.CalcHeight(label, EditorGUIUtility.currentViewWidth);
+
+                    EditorGUI.LabelField(position, label);
+
+                    position.y += size;
+                    position.height += addedHeight - size;
+
+                    // Fixed text dissappearing thanks to: http://answers.unity3d.com/questions/244043/textarea-does-not-work-text-dissapears-solution-is.html
+                    prop.stringValue = EditorGUI.TextArea(position, prop.stringValue);
+                }
+                else
+                {
+                    // Again with a MultilineAttribute on a non-text field deserves for the standard property field
+                    // to be drawn as punishment :P
+                    EditorGUI.PropertyField(position, prop, label);
+                }
             }
             else
             {
-                // Not numeric so draw standard property field as punishment for adding RangeAttribute to
-                // a property which can not have a range :P
+                // If we get to here it means we're drawing the default property field below the HelpBox. More custom
+                // and built in PropertyDrawers could be implemented to enable HelpBox but it could easily make for
+                // hefty else/if block which would need refactoring!
                 EditorGUI.PropertyField(position, prop, label);
             }
-        }
-        else if (multiline != null)
-        {
-            // Here's where we handle the PropertyDrawer differently if we have a MultiLineAttribute, to try
-            // and keep some kind of multiline text area. This is not identical to Unity's default but is
-            // better than nothing...
-            if (prop.propertyType == SerializedPropertyType.String)
-            {
-                var style = GUI.skin.label;
-                var size = style.CalcHeight(label, EditorGUIUtility.currentViewWidth);
-
-                EditorGUI.LabelField(position, label);
-
-                position.y += size;
-                position.height += addedHeight - size;
-
-                // Fixed text dissappearing thanks to: http://answers.unity3d.com/questions/244043/textarea-does-not-work-text-dissapears-solution-is.html
-                prop.stringValue = EditorGUI.TextArea(position, prop.stringValue);
-            }
-            else
-            {
-                // Again with a MultilineAttribute on a non-text field deserves for the standard property field
-                // to be drawn as punishment :P
-                EditorGUI.PropertyField(position, prop, label);
-            }
-        }
-        else
-        {
-            // If we get to here it means we're drawing the default property field below the HelpBox. More custom
-            // and built in PropertyDrawers could be implemented to enable HelpBox but it could easily make for
-            // hefty else/if block which would need refactoring!
-            EditorGUI.PropertyField(position, prop, label);
         }
 
         EditorGUI.EndProperty();
